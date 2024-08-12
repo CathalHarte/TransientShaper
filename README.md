@@ -1,7 +1,10 @@
-![PAMPLEJUCE](assets/images/pamplejuce.png)
-[![](https://github.com/sudara/pamplejuce/actions/workflows/build_and_test.yml/badge.svg)](https://github.com/sudara/pamplejuce/actions)
+![PAMPLEJUCE](assets/images/primitiveBanner.png)
 
-Pamplejuce is a ~~template~~ lifestyle for creating and building JUCE plugins in 2024.
+<!---
+## [![](https://github.com/sudara/pamplejuce/actions/workflows/build_and_test.yml/badge.svg)](https://github.com/sudara/pamplejuce/actions)
+--->
+
+Living the Pamplejuce lifestyle: Transient Shaper, a first plugin offering from ...
 
 Out of the box, it:
 
