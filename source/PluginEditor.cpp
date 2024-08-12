@@ -5,7 +5,22 @@ PluginEditor::PluginEditor (PluginProcessor& p)
 {
     juce::ignoreUnused (processorRef);
 
-    addAndMakeVisible (inspectButton);
+    // Would be great to get this up and running, edit the look
+    // addAndMakeVisible (inspectButton);
+
+    attackKnob.setSliderStyle (juce::Slider::Rotary);
+    attackKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible (&attackKnob);
+
+    sustainKnob.setSliderStyle (juce::Slider::Rotary);
+    sustainKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible (&sustainKnob);
+
+    saturationRoutingButton.setButtonText ("Saturation Before Shaper");
+    addAndMakeVisible (&saturationRoutingButton);
+
+    clipperButton.setButtonText ("Clipper");
+    addAndMakeVisible (&clipperButton);
 
     // this chunk of code instantiates and opens the melatonin inspector
     inspectButton.onClick = [&] {
@@ -31,12 +46,6 @@ void PluginEditor::paint (juce::Graphics& g)
 {
     // (Our component is opaque, so we must completely fill the background with a solid colour)
     g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
-
-    auto area = getLocalBounds();
-    g.setColour (juce::Colours::white);
-    g.setFont (16.0f);
-    auto helloWorld = juce::String ("Hello from ") + PRODUCT_NAME_WITHOUT_VERSION + " v" VERSION + " running in " + CMAKE_BUILD_TYPE;
-    g.drawText (helloWorld, area.removeFromTop (150), juce::Justification::centred, false);
 }
 
 void PluginEditor::resized()
@@ -45,4 +54,9 @@ void PluginEditor::resized()
     auto area = getLocalBounds();
     area.removeFromBottom(50);
     inspectButton.setBounds (getLocalBounds().withSizeKeepingCentre(100, 50));
+
+    attackKnob.setBounds (50, 50, 100, 100);
+    sustainKnob.setBounds (200, 50, 100, 100);
+    saturationRoutingButton.setBounds (50, 200, 200, 30);
+    clipperButton.setBounds (50, 250, 100, 30);
 }

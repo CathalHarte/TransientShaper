@@ -143,11 +143,49 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // the samples and the outer loop is handling the channels.
     // Alternatively, you can process the samples with the channels
     // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    // for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    // {
+    //     auto* channelData = buffer.getWritePointer (channel);
+    //     juce::ignoreUnused (channelData);
+    //     // ..do something to the data...
+    // }
+
+    // So am I missing something, then? Multi channel processing?
+
+    if (saturationBefore)
+        applySaturation (buffer);
+
+    applyTransientShaper (buffer);
+
+    if (!saturationBefore)
+        applySaturation (buffer);
+
+    if (clipperEnabled)
+        applyClipper (buffer);
+}
+
+void PluginProcessor::applyTransientShaper (juce::AudioBuffer<float>& buffer)
+{
+    // Implement transient shaping here
+}
+
+void PluginProcessor::applySaturation (juce::AudioBuffer<float>& buffer)
+{
+    // Implement saturation effect here
+}
+
+void PluginProcessor::applyClipper (juce::AudioBuffer<float>& buffer)
+{
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
         auto* channelData = buffer.getWritePointer (channel);
-        juce::ignoreUnused (channelData);
-        // ..do something to the data...
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        {
+            if (channelData[sample] > 1.0f)
+                channelData[sample] = 1.0f;
+            else if (channelData[sample] < -1.0f)
+                channelData[sample] = -1.0f;
+        }
     }
 }
 
@@ -165,17 +203,30 @@ juce::AudioProcessorEditor* PluginProcessor::createEditor()
 //==============================================================================
 void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
-    juce::ignoreUnused (destData);
+    // Store parameters here
+    std::unique_ptr<juce::XmlElement> xml (new juce::XmlElement ("StateInfo"));
+    xml->setAttribute ("attack", (double) attack);
+    xml->setAttribute ("sustain", (double) sustain);
+    xml->setAttribute ("saturationBefore", saturationBefore);
+    xml->setAttribute ("clipperEnabled", clipperEnabled);
+    copyXmlToBinary (*xml, destData);
 }
 
 void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
-    juce::ignoreUnused (data, sizeInBytes);
+    // Restore parameters here
+    std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
+
+    if (xmlState != nullptr)
+    {
+        if (xmlState->hasTagName ("StateInfo"))
+        {
+            attack = (float) xmlState->getDoubleAttribute ("attack", 0.5);
+            sustain = (float) xmlState->getDoubleAttribute ("sustain", 0.5);
+            saturationBefore = xmlState->getBoolAttribute ("saturationBefore", false);
+            clipperEnabled = xmlState->getBoolAttribute ("clipperEnabled", false);
+        }
+    }
 }
 
 //==============================================================================

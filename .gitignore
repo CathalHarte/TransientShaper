@@ -14,6 +14,9 @@ _deps
 Builds/*
 !Builds/.gitkeep
 
+out/build/*
+.vs
+
 # This should never exist
 Install/*
 

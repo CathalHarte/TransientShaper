@@ -39,5 +39,14 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    float attack { 0.5f };
+    float sustain { 0.5f };
+    bool saturationBefore { false };
+    bool clipperEnabled { false };
+
+    void applyTransientShaper (juce::AudioBuffer<float>& buffer);
+    void applySaturation (juce::AudioBuffer<float>& buffer);
+    void applyClipper (juce::AudioBuffer<float>& buffer);
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };
