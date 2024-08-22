@@ -164,15 +164,69 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         applyClipper (buffer);
 }
 
-void PluginProcessor::applyTransientShaper (juce::AudioBuffer<float>& buffer)
+void PluginProcessor::applyTransientShaper(juce::AudioBuffer<float>& buffer)
 {
-    // Implement transient shaping here
+    const float transientThreshold = 0.1f; // Threshold for detecting transients
+    const float transientBoost = 1.2f;     // Amount to boost transients
+    const float attackTime = 0.01f;        // Attack time in seconds
+    const float releaseTime = 0.1f;        // Release time in seconds
+    const float sampleRate = getSampleRate(); // Get the sample rate
+
+    // Convert attack and release times from seconds to samples
+    int attackSamples = static_cast<int>(attackTime * sampleRate);
+    int releaseSamples = static_cast<int>(releaseTime * sampleRate);
+
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    {
+        auto* channelData = buffer.getWritePointer(channel);
+        int numSamples = buffer.getNumSamples();
+
+        float gain = 1.0f; // Initial gain (no effect)
+
+        for (int i = 1; i < numSamples; ++i)
+        {
+            float currentSample = channelData[i];
+            float previousSample = channelData[i - 1];
+            
+            // Detect transients based on sudden changes
+            if (std::abs(currentSample - previousSample) > transientThreshold)
+            {
+                // Apply attack phase
+                gain = std::min(gain + (transientBoost - gain) / attackSamples, transientBoost);
+            }
+            else
+            {
+                // Apply release phase
+                gain = std::max(gain - (gain - 1.0f) / releaseSamples, 1.0f);
+            }
+
+            // Apply gain to the current sample
+            channelData[i] *= gain;
+        }
+    }
 }
 
-void PluginProcessor::applySaturation (juce::AudioBuffer<float>& buffer)
+
+void PluginProcessor::applySaturation(juce::AudioBuffer<float>& buffer)
 {
-    // Implement saturation effect here
+    const float saturationAmount = 0.5f; // Adjust saturation amount as needed
+
+    // Iterate through each channel
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    {
+        auto* channelData = buffer.getWritePointer(channel);
+        int numSamples = buffer.getNumSamples();
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Apply a simple saturation effect using a soft clipper
+            float x = channelData[i];
+            float saturatedValue = x / (1.0f + std::abs(x) * saturationAmount);
+            channelData[i] = saturatedValue;
+        }
+    }
 }
+
 
 void PluginProcessor::applyClipper (juce::AudioBuffer<float>& buffer)
 {
