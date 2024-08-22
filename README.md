@@ -4,7 +4,13 @@
 ## [![](https://github.com/sudara/pamplejuce/actions/workflows/build_and_test.yml/badge.svg)](https://github.com/sudara/pamplejuce/actions)
 --->
 
-Living the Pamplejuce lifestyle: Transient Shaper, a first plugin offering from ...
+Living the Pamplejuce lifestyle: Transient Shaper, a first plugin offering from Primitive, I guess?
+
+Intended for multi platform development. On Windows, VS2022 is required, ensure that C++ desktop development package, with the cmake module added, is installed.
+Simply open the TransientShaper folder in VS2022, and any edit to the CMakeLists file will auto trigger the cmake build. I found it necessary to install [Intel IPP](https://www.intel.com/content/www/us/en/developer/tools/oneapi/ipp.html#gs.cykfky). I downloaded it as part of a toolkit, which was probably overkill.
+
+
+Pamplejuce setup and documention below...
 
 Out of the box, it:
 
