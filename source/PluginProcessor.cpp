@@ -11,10 +11,13 @@ PluginProcessor::PluginProcessor()
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
                        ),
-       parameters (*this, nullptr, "Parameters",
+            parameters (*this, nullptr, "Parameters",
             {
-                std::make_unique<juce::AudioParameterFloat> (attackParamID, "Attack", 0.0f, 2.0f, 1.0f),
-                std::make_unique<juce::AudioParameterFloat> (sustainParamID, "Sustain", 0.0f, 2.0f, 1.0f)
+                std::make_unique<juce::AudioParameterFloat> (attackParamID, "Attack", 0.0f, 2.0f, 1.0f), // 1.0f is neutral
+                std::make_unique<juce::AudioParameterFloat> (sustainParamID, "Sustain", 0.0f, 2.0f, 1.0f), // 1.0f is neutral
+                std::make_unique<juce::AudioParameterFloat> (attackTimeParamID, "Attack Time (ms)", 1.0f, 20.0f, 5.0f),
+                std::make_unique<juce::AudioParameterFloat> (sustainTimeParamID, "Sustain Time (ms)", 10.0f, 150.0f, 50.0f),
+                std::make_unique<juce::AudioParameterFloat> (releaseTimeParamID, "Release Time (ms)", 10.0f, 200.0f, 100.0f)
             })
 {
 }
@@ -103,60 +106,74 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 {
     juce::ScopedNoDenormals noDenormals;
 
+    // Get the parameter values
     float attack = *parameters.getRawParameterValue (attackParamID);
     float sustain = *parameters.getRawParameterValue (sustainParamID);
 
-    const float attackTime = 0.01f; // Attack time in seconds
-    const float releaseTime = 0.1f; // Release time in seconds
+    // Get time-related parameter values
+    float attackTimeMs = *parameters.getRawParameterValue (attackTimeParamID);
+    float sustainTimeMs = *parameters.getRawParameterValue (sustainTimeParamID);
+    float releaseTimeMs = *parameters.getRawParameterValue (releaseTimeParamID);
+
     const float sampleRate = getSampleRate();
 
-    // Convert attack and release times to coefficients
-    float attackCoeff = std::exp(-1.0f / (attackTime * sampleRate));
-    float releaseCoeff = std::exp(-1.0f / (releaseTime * sampleRate));
+    // Convert times to coefficients
+    const float attackCoeff = std::exp(-1.0f / (attackTimeMs * 0.001f * sampleRate));
+    const float sustainCoeff = std::exp(-1.0f / (sustainTimeMs * 0.001f * sampleRate));
+    const float releaseCoeff = std::exp(-1.0f / (releaseTimeMs * 0.001f * sampleRate));
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
         auto* channelData = buffer.getWritePointer(channel);
         int numSamples = buffer.getNumSamples();
 
-        float envelope = 0.0f;
-
         for (int i = 0; i < numSamples; ++i)
         {
-            // Calculate envelope
-            float rectifiedSample = std::abs(channelData[i]);
+            float inputSample = channelData[i];
+            float rectifiedSample = std::abs(inputSample);
 
+            // Envelope follower for transient detection
             if (rectifiedSample > envelope)
+            {
                 envelope = attackCoeff * (envelope - rectifiedSample) + rectifiedSample;
+                inTransient = true; // We are in the transient phase
+                inSustain = false;  // Reset sustain flag during the transient phase
+            }
             else
+            {
                 envelope = releaseCoeff * (envelope - rectifiedSample) + rectifiedSample;
+                inTransient = false;
 
-            // Apply attack shaping
-            if (rectifiedSample > envelope * 1.1f) // 1.1 is a threshold multiplier, can be adjusted
-                channelData[i] *= attack;
+                // Once the transient phase ends, we enter the sustain phase
+                if (!inSustain)
+                {
+                    inSustain = true;
+                }
+            }
 
-            // Apply sustain shaping
-            if (rectifiedSample < envelope * 0.9f) // Sustain handling, adjust the ratio as needed
-                channelData[i] *= sustain;
+            // Apply attack shaping during the transient phase
+            if (inTransient)
+            {
+                gain = juce::jmap(attack, 0.5f, 1.5f, 0.7f, 1.3f); // Adjust gain based on attack control
+            }
+            else if (inSustain)
+            {
+                // Apply sustain shaping during the tail phase
+                // Increase gain reduction strength for sustain control
+                if (sustain < 1.0f)
+                {
+                    gain = 1.0f - (1.0f - sustain) * sustainCoeff; // Aggressive tail reduction when sustain < 1.0
+                }
+                else
+                {
+                    gain = juce::jmap(sustain, 1.0f, 2.0f, 1.0f, 1.2f) * sustainCoeff; // Subtle enhancement when sustain > 1.0
+                }
+            }
+
+            // Apply gain smoothly with a limiter to avoid distortion
+            channelData[i] *= juce::jlimit(0.0f, 2.0f, gain);
         }
     }
-}
-
-float envelopeFollower(const float* input, int numSamples, float attackCoeff, float releaseCoeff)
-{
-    float envelope = 0.0f;
-    
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float rectifiedSample = std::abs(input[i]); // Full-wave rectification
-        
-        if (rectifiedSample > envelope)
-            envelope = attackCoeff * (envelope - rectifiedSample) + rectifiedSample;
-        else
-            envelope = releaseCoeff * (envelope - rectifiedSample) + rectifiedSample;
-    }
-    
-    return envelope;
 }
 
 //==============================================================================
