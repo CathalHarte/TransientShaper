@@ -117,10 +117,13 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
     const float sampleRate = getSampleRate();
 
-    // Convert times to coefficients
-    const float attackCoeff = std::exp(-1.0f / (attackTimeMs * 0.001f * sampleRate));
-    const float sustainCoeff = std::exp(-1.0f / (sustainTimeMs * 0.001f * sampleRate));
-    const float releaseCoeff = std::exp(-1.0f / (releaseTimeMs * 0.001f * sampleRate));
+    // Define a minimum threshold for transient detection
+    const float minThreshold = 0.1f; // Adjust this value based on your needs
+
+    // Convert times to smoothing coefficients
+    const float attackSmoothingCoeff = std::exp(-1.0f / (attackTimeMs * 0.001f * sampleRate));
+    const float sustainSmoothingCoeff = std::exp(-1.0f / (sustainTimeMs * 0.001f * sampleRate));
+    const float releaseSmoothingCoeff = std::exp(-1.0f / (releaseTimeMs * 0.001f * sampleRate));
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
@@ -132,49 +135,66 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             float inputSample = channelData[i];
             float rectifiedSample = std::abs(inputSample);
 
-            // Envelope follower for transient detection
-            if (rectifiedSample > envelope)
+            // Improved transient detection with minimum threshold
+            envelope = (rectifiedSample > envelope) ? (attackSmoothingCoeff * (envelope - rectifiedSample) + rectifiedSample)
+                                                    : (releaseSmoothingCoeff * (envelope - rectifiedSample) + rectifiedSample);
+
+            // Only detect transients if the input is above the minimum threshold
+            bool transientDetected = rectifiedSample > minThreshold && rectifiedSample > envelope * 1.2f;
+
+            // If a transient is detected, enter the transient phase
+            if (transientDetected)
             {
-                envelope = attackCoeff * (envelope - rectifiedSample) + rectifiedSample;
-                inTransient = true; // We are in the transient phase
-                inSustain = false;  // Reset sustain flag during the transient phase
+                inTransient = true;
+                inSustain = false;
             }
             else
             {
-                envelope = releaseCoeff * (envelope - rectifiedSample) + rectifiedSample;
                 inTransient = false;
-
-                // Once the transient phase ends, we enter the sustain phase
-                if (!inSustain)
-                {
-                    inSustain = true;
-                }
+                inSustain = true;
             }
 
-            // Apply attack shaping during the transient phase
+            // Determine the target gain based on the current phase
+            float targetGain = 1.0f;
+
             if (inTransient)
             {
-                gain = juce::jmap(attack, 0.5f, 1.5f, 0.7f, 1.3f); // Adjust gain based on attack control
+                // Set the target gain for the attack phase
+                targetGain = juce::jmap(attack, 0.5f, 1.5f, 0.8f, 1.2f);
             }
             else if (inSustain)
             {
-                // Apply sustain shaping during the tail phase
-                // Increase gain reduction strength for sustain control
+                // Set the target gain for the sustain phase
                 if (sustain < 1.0f)
                 {
-                    gain = 1.0f - (1.0f - sustain) * sustainCoeff; // Aggressive tail reduction when sustain < 1.0
+                    targetGain = juce::jmap(sustain, 0.0f, 1.0f, 0.7f, 1.0f); // Smoother reduction
                 }
                 else
                 {
-                    gain = juce::jmap(sustain, 1.0f, 2.0f, 1.0f, 1.2f) * sustainCoeff; // Subtle enhancement when sustain > 1.0
+                    targetGain = juce::jmap(sustain, 1.0f, 2.0f, 1.0f, 1.2f);
                 }
             }
 
-            // Apply gain smoothly with a limiter to avoid distortion
-            channelData[i] *= juce::jlimit(0.0f, 2.0f, gain);
+            // Smoothly adjust the gain towards the target gain using the appropriate coefficient
+            if (inTransient)
+            {
+                gain = gain + (targetGain - gain) * attackSmoothingCoeff;
+            }
+            else if (inSustain)
+            {
+                gain = gain + (targetGain - gain) * sustainSmoothingCoeff;
+            }
+            else
+            {
+                gain = gain + (targetGain - gain) * releaseSmoothingCoeff;
+            }
+
+            // Apply the smoothed gain
+            channelData[i] *= gain;
         }
     }
 }
+
 
 //==============================================================================
 bool PluginProcessor::hasEditor() const
