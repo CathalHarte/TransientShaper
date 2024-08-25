@@ -102,6 +102,11 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     return true;
 }
 
+float prev_val = 0.0f;
+bool searching_for_transient = true;
+bool boost_stage = false;
+int hold_samples = 0;
+
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -110,20 +115,16 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     float attack = *parameters.getRawParameterValue (attackParamID);
     float sustain = *parameters.getRawParameterValue (sustainParamID);
 
+
     // Get time-related parameter values
-    float attackTimeMs = *parameters.getRawParameterValue (attackTimeParamID);
     float sustainTimeMs = *parameters.getRawParameterValue (sustainTimeParamID);
-    float releaseTimeMs = *parameters.getRawParameterValue (releaseTimeParamID);
 
     const float sampleRate = getSampleRate();
 
-    // Define a minimum threshold for transient detection
-    const float minThreshold = 0.1f; // Adjust this value based on your needs
+    int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sampleRate);
 
-    // Convert times to smoothing coefficients
-    const float attackSmoothingCoeff = std::exp(-1.0f / (attackTimeMs * 0.001f * sampleRate));
-    const float sustainSmoothingCoeff = std::exp(-1.0f / (sustainTimeMs * 0.001f * sampleRate));
-    const float releaseSmoothingCoeff = std::exp(-1.0f / (releaseTimeMs * 0.001f * sampleRate));
+    // Define a minimum threshold for transient detection
+    const float minThreshold = 0.01f; // Adjust this value based on your needs
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
@@ -133,64 +134,37 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         for (int i = 0; i < numSamples; ++i)
         {
             float inputSample = channelData[i];
-            float rectifiedSample = std::abs(inputSample);
 
-            // Improved transient detection with minimum threshold
-            envelope = (rectifiedSample > envelope) ? (attackSmoothingCoeff * (envelope - rectifiedSample) + rectifiedSample)
-                                                    : (releaseSmoothingCoeff * (envelope - rectifiedSample) + rectifiedSample);
+            if (searching_for_transient) {
+                
+                channelData[i] *= sustain;
 
-            // Only detect transients if the input is above the minimum threshold
-            bool transientDetected = rectifiedSample > minThreshold && rectifiedSample > envelope * 1.2f;
+                if (std::abs(inputSample - prev_val) > 0.2) {
+                    prev_val = inputSample;
 
-            // If a transient is detected, enter the transient phase
-            if (transientDetected)
-            {
-                inTransient = true;
-                inSustain = false;
-            }
-            else
-            {
-                inTransient = false;
-                inSustain = true;
-            }
-
-            // Determine the target gain based on the current phase
-            float targetGain = 1.0f;
-
-            if (inTransient)
-            {
-                // Set the target gain for the attack phase
-                targetGain = juce::jmap(attack, 0.5f, 1.5f, 0.8f, 1.2f);
-            }
-            else if (inSustain)
-            {
-                // Set the target gain for the sustain phase
-                if (sustain < 1.0f)
-                {
-                    targetGain = juce::jmap(sustain, 0.0f, 1.0f, 0.7f, 1.0f); // Smoother reduction
+                    // That's our definition of a transient
+                    boost_stage = true;
+                    searching_for_transient = false;
                 }
-                else
+            }
+            if (boost_stage) {
+                channelData[i] *= attack; // big stupid boost
+                
+                hold_samples++;
+                if (hold_samples > sustainSampleCount)
                 {
-                    targetGain = juce::jmap(sustain, 1.0f, 2.0f, 1.0f, 1.2f);
+                    hold_samples = 0;
+                    boost_stage = false;
+                    searching_for_transient = true;
                 }
             }
 
-            // Smoothly adjust the gain towards the target gain using the appropriate coefficient
-            if (inTransient)
-            {
-                gain = gain + (targetGain - gain) * attackSmoothingCoeff;
-            }
-            else if (inSustain)
-            {
-                gain = gain + (targetGain - gain) * sustainSmoothingCoeff;
-            }
-            else
-            {
-                gain = gain + (targetGain - gain) * releaseSmoothingCoeff;
-            }
+            // ok, let's make it rather simple - we detect a transient as a large change
+            // in the sample value - this should always be detectable
 
-            // Apply the smoothed gain
-            channelData[i] *= gain;
+            // Once this has been detected, we can apply different envelopes
+            // find the end of the transient phase by a sharp drop of in energy
+            // suppress beyond this transient phase
         }
     }
 }
