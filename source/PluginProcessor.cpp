@@ -103,9 +103,17 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 }
 
 float prev_val = 0.0f;
-bool searching_for_transient = true;
-bool boost_stage = false;
-int hold_samples = 0;
+int transient_samples = 0;
+int tail_samples = 0;
+
+enum class State
+{
+    IDLE,       // Waiting for a transient
+    TRANSIENT,  // A transient is detected
+    TAIL        // The transient has passed, handling the tail
+};
+
+State current_state = State::IDLE;
 
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
@@ -118,10 +126,12 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
     // Get time-related parameter values
     float sustainTimeMs = *parameters.getRawParameterValue (sustainTimeParamID);
+    float tailTimeMs = *parameters.getRawParameterValue(releaseTimeParamID);
 
     const float sampleRate = getSampleRate();
 
     int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sampleRate);
+    int tailSampleCount = static_cast<int>(tailTimeMs * 0.001f * sampleRate);
 
     // Define a minimum threshold for transient detection
     const float minThreshold = 0.01f; // Adjust this value based on your needs
@@ -135,36 +145,41 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         {
             float inputSample = channelData[i];
 
-            if (searching_for_transient) {
+            switch (current_state)
+            {
+                case State::IDLE:
+                    // Check if a transient is detected to move to the TRANSIENT state
+                    if (std::abs(inputSample - prev_val) > 0.2) {
+                        current_state = State::TRANSIENT;
+                    }
+                break;
+
+                case State::TRANSIENT:
+                    // Handle the transient processing
+                    channelData[i] *= attack; // big stupid boost
                 
-                channelData[i] *= sustain;
+                    transient_samples++;
+                    if (transient_samples > sustainSampleCount)
+                    {
+                        transient_samples = 0;
+                        current_state = State::TAIL;
+                    }
+                    break;
 
-                if (std::abs(inputSample - prev_val) > 0.2) {
-                    prev_val = inputSample;
+                case State::TAIL:
+                    // Handle the tail processing
+                    channelData[i] *= sustain;
 
-                    // That's our definition of a transient
-                    boost_stage = true;
-                    searching_for_transient = false;
-                }
+                    tail_samples++;
+                    if (tail_samples > tailSampleCount) {
+                        tail_samples = 0;
+                        current_state = State::IDLE;
+                    }
+
+                    break;
             }
-            if (boost_stage) {
-                channelData[i] *= attack; // big stupid boost
-                
-                hold_samples++;
-                if (hold_samples > sustainSampleCount)
-                {
-                    hold_samples = 0;
-                    boost_stage = false;
-                    searching_for_transient = true;
-                }
-            }
 
-            // ok, let's make it rather simple - we detect a transient as a large change
-            // in the sample value - this should always be detectable
-
-            // Once this has been detected, we can apply different envelopes
-            // find the end of the transient phase by a sharp drop of in energy
-            // suppress beyond this transient phase
+            prev_val = inputSample;            
         }
     }
 }
