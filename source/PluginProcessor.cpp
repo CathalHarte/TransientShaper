@@ -10,7 +10,15 @@ PluginProcessor::PluginProcessor()
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
-                       )
+                       ),
+            parameters (*this, nullptr, "Parameters",
+            {
+                std::make_unique<juce::AudioParameterFloat> (attackParamID, "Attack", 0.0f, 2.0f, 1.0f), // 1.0f is neutral
+                std::make_unique<juce::AudioParameterFloat> (sustainParamID, "Sustain", 0.0f, 2.0f, 1.0f), // 1.0f is neutral
+                std::make_unique<juce::AudioParameterFloat> (attackTimeParamID, "Attack Time (ms)", 1.0f, 20.0f, 5.0f),
+                std::make_unique<juce::AudioParameterFloat> (sustainTimeParamID, "Sustain Time (ms)", 10.0f, 150.0f, 50.0f),
+                std::make_unique<juce::AudioParameterFloat> (releaseTimeParamID, "Release Time (ms)", 10.0f, 200.0f, 100.0f)
+            })
 {
 }
 
@@ -26,29 +34,17 @@ const juce::String PluginProcessor::getName() const
 
 bool PluginProcessor::acceptsMidi() const
 {
-   #if JucePlugin_WantsMidiInput
-    return true;
-   #else
     return false;
-   #endif
 }
 
 bool PluginProcessor::producesMidi() const
 {
-   #if JucePlugin_ProducesMidiOutput
-    return true;
-   #else
     return false;
-   #endif
 }
 
 bool PluginProcessor::isMidiEffect() const
 {
-   #if JucePlugin_IsMidiEffect
-    return true;
-   #else
     return false;
-   #endif
 }
 
 double PluginProcessor::getTailLengthSeconds() const
@@ -58,8 +54,7 @@ double PluginProcessor::getTailLengthSeconds() const
 
 int PluginProcessor::getNumPrograms()
 {
-    return 1;   // NB: some hosts don't cope very well if you tell them there are 0 programs,
-                // so this should be at least 1, even if you're not really implementing programs.
+    return 1;
 }
 
 int PluginProcessor::getCurrentProgram()
@@ -86,113 +81,114 @@ void PluginProcessor::changeProgramName (int index, const juce::String& newName)
 //==============================================================================
 void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // Use this method as the place to do any pre-playback
-    // initialisation that you need..
     juce::ignoreUnused (sampleRate, samplesPerBlock);
 }
 
 void PluginProcessor::releaseResources()
 {
-    // When playback stops, you can use this as an opportunity to free up any
-    // spare memory, etc.
 }
 
 bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-  #if JucePlugin_IsMidiEffect
-    juce::ignoreUnused (layouts);
-    return true;
-  #else
-    // This is the place where you check if the layout is supported.
-    // In this template code we only support mono or stereo.
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
-    // This checks if the input layout matches the output layout
-   #if ! JucePlugin_IsSynth
+    #if ! JucePlugin_IsSynth
     if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
         return false;
-   #endif
+    #endif
 
     return true;
-  #endif
 }
 
-void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                              juce::MidiBuffer& midiMessages)
-{
-    juce::ignoreUnused (midiMessages);
+float prev_val = 0.0f;
+int transient_samples = 0;
+int tail_samples = 0;
 
+enum class State
+{
+    IDLE,       // Waiting for a transient
+    TRANSIENT,  // A transient is detected
+    TAIL        // The transient has passed, handling the tail
+};
+
+State current_state = State::IDLE;
+
+void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
     juce::ScopedNoDenormals noDenormals;
-    auto totalNumInputChannels  = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, buffer.getNumSamples());
+    // Get the parameter values
+    float attack = *parameters.getRawParameterValue (attackParamID);
+    float sustain = *parameters.getRawParameterValue (sustainParamID);
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    // for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    // {
-    //     auto* channelData = buffer.getWritePointer (channel);
-    //     juce::ignoreUnused (channelData);
-    //     // ..do something to the data...
-    // }
 
-    // So am I missing something, then? Multi channel processing?
+    // Get time-related parameter values
+    float sustainTimeMs = *parameters.getRawParameterValue (sustainTimeParamID);
+    float tailTimeMs = *parameters.getRawParameterValue(releaseTimeParamID);
 
-    if (saturationBefore)
-        applySaturation (buffer);
+    const float sampleRate = getSampleRate();
 
-    applyTransientShaper (buffer);
+    int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sampleRate);
+    int tailSampleCount = static_cast<int>(tailTimeMs * 0.001f * sampleRate);
 
-    if (!saturationBefore)
-        applySaturation (buffer);
+    // Define a minimum threshold for transient detection
+    const float minThreshold = 0.01f; // Adjust this value based on your needs
 
-    if (clipperEnabled)
-        applyClipper (buffer);
-}
-
-void PluginProcessor::applyTransientShaper (juce::AudioBuffer<float>& buffer)
-{
-    // Implement transient shaping here
-}
-
-void PluginProcessor::applySaturation (juce::AudioBuffer<float>& buffer)
-{
-    // Implement saturation effect here
-}
-
-void PluginProcessor::applyClipper (juce::AudioBuffer<float>& buffer)
-{
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
-        auto* channelData = buffer.getWritePointer (channel);
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        auto* channelData = buffer.getWritePointer(channel);
+        int numSamples = buffer.getNumSamples();
+
+        for (int i = 0; i < numSamples; ++i)
         {
-            if (channelData[sample] > 1.0f)
-                channelData[sample] = 1.0f;
-            else if (channelData[sample] < -1.0f)
-                channelData[sample] = -1.0f;
+            float inputSample = channelData[i];
+
+            switch (current_state)
+            {
+                case State::IDLE:
+                    // Check if a transient is detected to move to the TRANSIENT state
+                    if (std::abs(inputSample - prev_val) > 0.2) {
+                        current_state = State::TRANSIENT;
+                    }
+                break;
+
+                case State::TRANSIENT:
+                    // Handle the transient processing
+                    channelData[i] *= attack; // big stupid boost
+                
+                    transient_samples++;
+                    if (transient_samples > sustainSampleCount)
+                    {
+                        transient_samples = 0;
+                        current_state = State::TAIL;
+                    }
+                    break;
+
+                case State::TAIL:
+                    // Handle the tail processing
+                    channelData[i] *= sustain;
+
+                    tail_samples++;
+                    if (tail_samples > tailSampleCount) {
+                        tail_samples = 0;
+                        current_state = State::IDLE;
+                    }
+
+                    break;
+            }
+
+            prev_val = inputSample;            
         }
     }
 }
 
+
 //==============================================================================
 bool PluginProcessor::hasEditor() const
 {
-    return true; // (change this to false if you choose to not supply an editor)
+    return true;
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor()
@@ -203,28 +199,21 @@ juce::AudioProcessorEditor* PluginProcessor::createEditor()
 //==============================================================================
 void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // Store parameters here
-    std::unique_ptr<juce::XmlElement> xml (new juce::XmlElement ("StateInfo"));
-    xml->setAttribute ("attack", (double) attack);
-    xml->setAttribute ("sustain", (double) sustain);
-    xml->setAttribute ("saturationBefore", saturationBefore);
-    xml->setAttribute ("clipperEnabled", clipperEnabled);
+    // Save plugin state
+    std::unique_ptr<juce::XmlElement> xml (parameters.state.createXml());
     copyXmlToBinary (*xml, destData);
 }
 
 void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // Restore parameters here
+    // Restore plugin state
     std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
 
     if (xmlState != nullptr)
     {
-        if (xmlState->hasTagName ("StateInfo"))
+        if (xmlState->hasTagName (parameters.state.getType()))
         {
-            attack = (float) xmlState->getDoubleAttribute ("attack", 0.5);
-            sustain = (float) xmlState->getDoubleAttribute ("sustain", 0.5);
-            saturationBefore = xmlState->getBoolAttribute ("saturationBefore", false);
-            clipperEnabled = xmlState->getBoolAttribute ("clipperEnabled", false);
+            parameters.state = juce::ValueTree::fromXml (*xmlState);
         }
     }
 }

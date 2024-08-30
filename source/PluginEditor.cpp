@@ -1,41 +1,51 @@
 #include "PluginEditor.h"
 
+//==============================================================================
 PluginEditor::PluginEditor (PluginProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p)
 {
-    juce::ignoreUnused (processorRef);
+    // Attach sliders and buttons to APVTS parameters
+    attackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::attackParamID, attackKnob);
 
-    // Would be great to get this up and running, edit the look
-    // addAndMakeVisible (inspectButton);
+    sustainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::sustainParamID, sustainKnob);
 
+
+    // Set up slider and button properties
     attackKnob.setSliderStyle (juce::Slider::Rotary);
     attackKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 20);
-    addAndMakeVisible (&attackKnob);
+    addAndMakeVisible (attackKnob);
 
     sustainKnob.setSliderStyle (juce::Slider::Rotary);
     sustainKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 20);
-    addAndMakeVisible (&sustainKnob);
+    addAndMakeVisible (sustainKnob);
 
-    saturationRoutingButton.setButtonText ("Saturation Before Shaper");
-    addAndMakeVisible (&saturationRoutingButton);
+    attackTimeSlider.setSliderStyle(juce::Slider::Rotary);
+    attackTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible(attackTimeSlider);
 
-    clipperButton.setButtonText ("Clipper");
-    addAndMakeVisible (&clipperButton);
+    sustainTimeSlider.setSliderStyle(juce::Slider::Rotary);
+    sustainTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible(sustainTimeSlider);
 
-    // this chunk of code instantiates and opens the melatonin inspector
-    inspectButton.onClick = [&] {
-        if (!inspector)
-        {
-            inspector = std::make_unique<melatonin::Inspector> (*this);
-            inspector->onClose = [this]() { inspector.reset(); };
-        }
+    releaseTimeSlider.setSliderStyle(juce::Slider::Rotary);
+    releaseTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible(releaseTimeSlider);
 
-        inspector->setVisible (true);
-    };
+    // Attach sliders to parameters
+    attackTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::attackTimeParamID, attackTimeSlider);
 
-    // Make sure that before the constructor has finished, you've set the
-    // editor's size to whatever you need it to be.
-    setSize (400, 300);
+    sustainTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::sustainTimeParamID, sustainTimeSlider);
+
+    releaseTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::releaseTimeParamID, releaseTimeSlider);
+
+
+    // Set the size of the editor
+    setSize (600, 300);
 }
 
 PluginEditor::~PluginEditor()
@@ -44,19 +54,16 @@ PluginEditor::~PluginEditor()
 
 void PluginEditor::paint (juce::Graphics& g)
 {
-    // (Our component is opaque, so we must completely fill the background with a solid colour)
+    // Fill background
     g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
 }
 
 void PluginEditor::resized()
 {
-    // layout the positions of your child components here
-    auto area = getLocalBounds();
-    area.removeFromBottom(50);
-    inspectButton.setBounds (getLocalBounds().withSizeKeepingCentre(100, 50));
-
+    // Layout positions of child components
     attackKnob.setBounds (50, 50, 100, 100);
     sustainKnob.setBounds (200, 50, 100, 100);
-    saturationRoutingButton.setBounds (50, 200, 200, 30);
-    clipperButton.setBounds (50, 250, 100, 30);
+    attackTimeSlider.setBounds(50, 200, 100, 100);
+    sustainTimeSlider.setBounds(200, 200, 100, 100);
+    releaseTimeSlider.setBounds(350, 200, 100, 100);
 }

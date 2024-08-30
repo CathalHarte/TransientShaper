@@ -2,10 +2,6 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#if (MSVC)
-#include "ipps.h"
-#endif
-
 class PluginProcessor : public juce::AudioProcessor
 {
 public:
@@ -14,9 +10,6 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
-
-    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -38,13 +31,28 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-private:
-    float attack { 0.5f };
-    float sustain { 0.5f };
-    bool saturationBefore { false };
-    bool clipperEnabled { false };
+    // Declare the isBusesLayoutSupported function here
+    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 
-    void applyTransientShaper (juce::AudioBuffer<float>& buffer);
+    // APVTS object to manage plugin parameters
+    juce::AudioProcessorValueTreeState parameters;
+
+    // Parameter IDs
+    static constexpr auto attackParamID = "attack";
+    static constexpr auto sustainParamID = "sustain";
+
+    static constexpr auto attackTimeParamID = "attackTimeMs";
+    static constexpr auto sustainTimeParamID = "sustainTimeMs";
+    static constexpr auto releaseTimeParamID = "releaseTimeMs";
+
+private:
+    // Envelope-related variables
+    float envelope = 0.0f;
+    float gain = 1.0f;
+    bool inTransient = false;
+    bool inSustain = false;
+
+    void applyTransientShaper (juce::AudioBuffer<float>& buffer, float attack, float sustain);
     void applySaturation (juce::AudioBuffer<float>& buffer);
     void applyClipper (juce::AudioBuffer<float>& buffer);
 
