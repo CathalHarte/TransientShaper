@@ -6,6 +6,8 @@
 
 Welcome hackers and cheapskates. You could have just bought the plugin directly from us, but maybe you didn't want to pay, or maybe you just thought the the range of sounds available from this plugin in its stock form are too limited, so now here we are, have it at. Building with CMake is a fairly steep learning curve to get to grips with, as is C++ development, but luckily it's all spelt out for you below.
 
+This is the 'Whipper Snapper' your one stop shop for punchy drums. 
+
 Intended for multi platform development. On Windows, [VS2022](https://visualstudio.microsoft.com/downloads/) can be used as an IDE, or simply for the C++ compiler, just ensure that C++ desktop development package, with the optional C++ CMake tools for Windows selected, is installed. This will give you everything you need to configure and build CMake projects.
 Simply open the TransientShaper folder in VS2022, and any edit to the CMakeLists file will automagically trigger the cmake configure step. It may be necessary to install [Intel IPP](https://www.intel.com/content/www/us/en/developer/tools/oneapi/ipp.html#gs.cykfky) in the future, but for now, since the PamplejuceIPP variable has been commented out in the CMakeLists.txt file, it should not be needed.
 
