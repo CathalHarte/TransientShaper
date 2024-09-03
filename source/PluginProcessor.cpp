@@ -123,7 +123,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     float attack = *parameters.getRawParameterValue (attackParamID);
     float sustain = *parameters.getRawParameterValue (sustainParamID);
 
-
     // Get time-related parameter values
     float sustainTimeMs = *parameters.getRawParameterValue (sustainTimeParamID);
     float tailTimeMs = *parameters.getRawParameterValue(releaseTimeParamID);
@@ -135,6 +134,10 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
     // Define a minimum threshold for transient detection
     const float minThreshold = 0.01f; // Adjust this value based on your needs
+
+    // Attack and release curve parameters
+    const float attackCurve = 5.0f; // Adjust for desired attack curve
+    const float releaseCurve = 5.0f; // Adjust for desired release curve
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
@@ -151,31 +154,44 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                     // Check if a transient is detected to move to the TRANSIENT state
                     if (std::abs(inputSample - prev_val) > 0.2) {
                         current_state = State::TRANSIENT;
+                        transient_samples = 0;
                     }
-                break;
+                    break;
 
                 case State::TRANSIENT:
-                    // Handle the transient processing
-                    channelData[i] *= attack; // big stupid boost
-                
-                    transient_samples++;
-                    if (transient_samples > sustainSampleCount)
                     {
-                        transient_samples = 0;
-                        current_state = State::TAIL;
+                        // Calculate the attack curve
+                        float progress = static_cast<float>(transient_samples) / sustainSampleCount;
+                        float curve = 1.0f - std::exp(-attackCurve * progress);
+                        float gain = 1.0f + (attack - 1.0f) * curve;
+
+                        // Apply the gain
+                        channelData[i] *= gain;
+                    
+                        transient_samples++;
+                        if (transient_samples >= sustainSampleCount)
+                        {
+                            current_state = State::TAIL;
+                            tail_samples = 0;
+                        }
                     }
                     break;
 
                 case State::TAIL:
-                    // Handle the tail processing
-                    channelData[i] *= sustain;
+                    {
+                        // Calculate the release curve
+                        float progress = static_cast<float>(tail_samples) / tailSampleCount;
+                        float curve = std::exp(-releaseCurve * progress);
+                        float gain = sustain + (1.0f - sustain) * curve;
 
-                    tail_samples++;
-                    if (tail_samples > tailSampleCount) {
-                        tail_samples = 0;
-                        current_state = State::IDLE;
+                        // Apply the gain
+                        channelData[i] *= gain;
+
+                        tail_samples++;
+                        if (tail_samples >= tailSampleCount) {
+                            current_state = State::IDLE;
+                        }
                     }
-
                     break;
             }
 
