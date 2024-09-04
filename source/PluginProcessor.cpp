@@ -94,12 +94,13 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     return true;
 }
 
-float prev_val = 0.0f;
 int body_samples = 0;
 int sustain_samples = 0;
 double sample_rate = 0;
 std::unique_ptr<SlidingWindowEnergy> window;
 int windowSizeInSamples = 0;
+float cached_gain = 1;
+float prev_gain = 1;
 
 enum class State
 {
@@ -112,10 +113,11 @@ State current_state = State::IDLE;
 
 void PluginProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int samplesPerBlock)
 {
-    prev_val = 0;
     body_samples = 0;
     sustain_samples = 0;
     sample_rate = sampleRate;
+    cached_gain = 1;
+    prev_gain = 1;
 
     windowSizeInSamples = (int)(0.005 * sampleRate);  // 5ms window
     window = std::make_unique<SlidingWindowEnergy>(windowSizeInSamples);
@@ -146,8 +148,8 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sample_rate);
 
     // Attack and release curve parameters (we may turn this into a knob, so leave it here for now)
-    const float attackCurve = 5.0f; // Adjust for desired attack curve
-    const float releaseCurve = 2.0f; // Adjust for desired release curve
+    const float attackCurve = 3.0f; // Adjust for desired attack curve
+    const float releaseCurve = 1.0f; // Adjust for desired release curve
 
     float normalizationFactorAttack = 1.0f - std::exp(-attackCurve);
     float normalizationFactorRelease = 1.0f - std::exp(-releaseCurve);
@@ -171,24 +173,35 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             // Compare dB level with your threshold to detect transient
             if (dB > -12) {
                 // Transient detected
+
+                if (current_state == State::IDLE)
+                {
+                    prev_gain = 1;
+                }
+                else 
+                {
+                    prev_gain = cached_gain;
+                }
+
                 current_state = State::BODY;
             }
 
+            float gain = 1;
             switch (current_state)
             {
                 case State::IDLE:
+                    gain = 1;
                     break;
 
                 case State::BODY:
                     {
-                        float gain;
                         // Calculate the attack curve with normalization
                         if (body_samples <= attackSampleCount)
                         {
                             // Attack phase: progress from 1.0 to the attack gain
                             float progress = static_cast<float>(body_samples) / attackSampleCount;
                             float curve = (1.0f - std::exp(-attackCurve * progress)) / normalizationFactorAttack;
-                            gain = 1.0f + (attack - 1.0f) * curve;
+                            gain = prev_gain + (attack - prev_gain) * curve;
                         }
                         else
                         {
@@ -197,9 +210,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                             float curve = (1.0f - std::exp(-attackCurve * decayProgress)) / normalizationFactorRelease;
                             gain = 1.0f + (attack - 1.0f) * (1.0f - curve);
                         }
-
-                        // Apply the gain
-                        channelData[i] *= gain;
                     
                         body_samples++;
                         if (body_samples >= bodySampleCount)
@@ -215,10 +225,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                         // Calculate the release curve
                         float progress = static_cast<float>(sustain_samples) / sustainSampleCount;
                         float curve = std::exp(-releaseCurve * progress);
-                        float gain = sustain + (1.0f - sustain) * curve;
-
-                        // Apply the gain
-                        channelData[i] *= gain;
+                        gain = sustain + (1.0f - sustain) * curve;
 
                         sustain_samples++;
                         if (sustain_samples >= sustainSampleCount) {
@@ -229,7 +236,10 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                     break;
             }
 
-            prev_val = inputSample;            
+            // Apply the gain (with some tanh saturation)
+            channelData[i] = tanh(channelData[i] * gain);
+
+            cached_gain = gain;            
         }
     }
 }
