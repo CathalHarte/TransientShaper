@@ -15,10 +15,17 @@ PluginProcessor::PluginProcessor()
             parameters (*this, nullptr, "Parameters",
             {
                 std::make_unique<juce::AudioParameterFloat> (attackParamID, "Attack", 0.0f, 2.0f, 1.0f), // 1.0f is neutral
+                
                 std::make_unique<juce::AudioParameterFloat> (sustainParamID, "Sustain", 0.0f, 2.0f, 1.0f), // 1.0f is neutral
+                std::make_unique<juce::AudioParameterFloat> (thresholdParamID, "Threshold", -20.0f, 0.0f, -10.0f),
+                
                 std::make_unique<juce::AudioParameterFloat> (attackTimeParamID, "Attack Time (ms)", 1.0f, 20.0f, 5.0f),
                 std::make_unique<juce::AudioParameterFloat> (bodyTimeParamID, "Sustain Time (ms)", 10.0f, 150.0f, 50.0f),
-                std::make_unique<juce::AudioParameterFloat> (sustainTimeParamID, "Release Time (ms)", 10.0f, 200.0f, 100.0f)
+                std::make_unique<juce::AudioParameterFloat> (sustainTimeParamID, "Release Time (ms)", 10.0f, 200.0f, 100.0f),
+                
+                std::make_unique<juce::AudioParameterFloat> (attackCurveParamID, "Attack Curve", 1.0f, 10.0f, 3.0f),
+                std::make_unique<juce::AudioParameterFloat> (bodyCurveParamID, "Body Curve", 1.0f, 10.0f, 3.0f),
+                std::make_unique<juce::AudioParameterFloat> (sustainCurveParamID, "Sustain Curve", 1.0f, 10.0f, 3.0f)
             })
 {
 }
@@ -135,24 +142,27 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     (void)midiMessages;
 
     // Get the parameter values
+    float threshold = *parameters.getRawParameterValue(thresholdParamID);
+
     float attack = *parameters.getRawParameterValue (attackParamID);
     float sustain = *parameters.getRawParameterValue (sustainParamID);
 
-    // Get time-related parameter values
     float attackTimeMs = *parameters.getRawParameterValue (attackTimeParamID);
     float bodyTimeMs = *parameters.getRawParameterValue (bodyTimeParamID);
     float sustainTimeMs = *parameters.getRawParameterValue(sustainTimeParamID);
 
     int attackSampleCount = static_cast<int>(attackTimeMs * 0.001f * sample_rate);
-    int bodySampleCount = static_cast<int>(bodyTimeMs * 0.001f * sample_rate);
+    int bodySampleCount = static_cast<int>(bodyTimeMs * 0.001f * sample_rate) - attackSampleCount;
     int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sample_rate);
 
-    // Attack and release curve parameters (we may turn this into a knob, so leave it here for now)
-    const float attackCurve = 3.0f; // Adjust for desired attack curve
-    const float releaseCurve = 1.0f; // Adjust for desired release curve
+
+    float attackCurve = *parameters.getRawParameterValue(attackCurveParamID);
+    float bodyCurve = *parameters.getRawParameterValue(bodyCurveParamID);
+    float sustainCurve = *parameters.getRawParameterValue(sustainCurveParamID);
 
     float normalizationFactorAttack = 1.0f - std::exp(-attackCurve);
-    float normalizationFactorRelease = 1.0f - std::exp(-releaseCurve);
+    float normalizationFactorBody = 1.0f - std::exp(-bodyCurve);
+    float normalizationFactorSustain = 1.0f - std::exp(-sustainCurve);
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
@@ -171,7 +181,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             float dB = 10.0f * std::log10(energy + 1e-6f);  // Convert to dB
 
             // Compare dB level with your threshold to detect transient
-            if (dB > -12) {
+            if (dB > threshold) {
                 // Transient detected
 
                 if (current_state == State::IDLE)
@@ -205,9 +215,9 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                         }
                         else
                         {
-                            // Decay phase: progress back from the attack gain to 1.0
-                            float decayProgress = static_cast<float>(body_samples - attackSampleCount) / bodySampleCount;
-                            float curve = (1.0f - std::exp(-attackCurve * decayProgress)) / normalizationFactorRelease;
+                            // Body phase: progress back from the attack gain to 1.0
+                            float bodyProgress = static_cast<float>(body_samples - attackSampleCount) / bodySampleCount;
+                            float curve = (1.0f - std::exp(-bodyCurve * bodyProgress)) / normalizationFactorBody;
                             gain = 1.0f + (attack - 1.0f) * (1.0f - curve);
                         }
                     
@@ -223,9 +233,9 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                 case State::SUSTAIN:
                     {
                         // Calculate the release curve
-                        float progress = static_cast<float>(sustain_samples) / sustainSampleCount;
-                        float curve = std::exp(-releaseCurve * progress);
-                        gain = sustain + (1.0f - sustain) * curve;
+                        float sustainProgress = static_cast<float>(sustain_samples) / sustainSampleCount;
+                        float curve = (1.0f - std::exp(-sustainCurve * sustainProgress)) / normalizationFactorSustain;
+                        gain = 1.0f + (sustain - 1.0f) * curve;
 
                         sustain_samples++;
                         if (sustain_samples >= sustainSampleCount) {
