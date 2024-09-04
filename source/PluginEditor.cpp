@@ -38,10 +38,10 @@ PluginEditor::PluginEditor (PluginProcessor& p)
         processorRef.parameters, PluginProcessor::attackTimeParamID, attackTimeSlider);
 
     sustainTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processorRef.parameters, PluginProcessor::sustainTimeParamID, sustainTimeSlider);
+        processorRef.parameters, PluginProcessor::bodyTimeParamID, sustainTimeSlider);
 
     releaseTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processorRef.parameters, PluginProcessor::releaseTimeParamID, releaseTimeSlider);
+        processorRef.parameters, PluginProcessor::sustainTimeParamID, releaseTimeSlider);
 
 
     // Set the size of the editor

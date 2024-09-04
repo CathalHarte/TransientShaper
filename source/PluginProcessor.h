@@ -38,23 +38,20 @@ public:
     juce::AudioProcessorValueTreeState parameters;
 
     // Parameter IDs
+    // gain values, allowing to increase / decrease two parts of the sound
     static constexpr auto attackParamID = "attack";
     static constexpr auto sustainParamID = "sustain";
 
+     // for setting the slope of the attack phase - the duration of time over which the "attack" gain is reached
     static constexpr auto attackTimeParamID = "attackTimeMs";
+
+    // for setting the duration of the body of the sound, which contains both the first boosted transient,
+    // and an untouched portion of the sound (before the sustain phase is entered)
+    static constexpr auto bodyTimeParamID = "bodyTimeMs"; 
+
+    // for setting the duration of the sustain phase - the duration of time over which the "sustain" gain is reached
     static constexpr auto sustainTimeParamID = "sustainTimeMs";
-    static constexpr auto releaseTimeParamID = "releaseTimeMs";
 
 private:
-    // Envelope-related variables
-    float envelope = 0.0f;
-    float gain = 1.0f;
-    bool inTransient = false;
-    bool inSustain = false;
-
-    void applyTransientShaper (juce::AudioBuffer<float>& buffer, float attack, float sustain);
-    void applySaturation (juce::AudioBuffer<float>& buffer);
-    void applyClipper (juce::AudioBuffer<float>& buffer);
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };
