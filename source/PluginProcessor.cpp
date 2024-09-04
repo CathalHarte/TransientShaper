@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "SlidingWindowEnergy.h"
 
 //==============================================================================
 PluginProcessor::PluginProcessor()
@@ -79,15 +80,6 @@ void PluginProcessor::changeProgramName (int index, const juce::String& newName)
 }
 
 //==============================================================================
-void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
-    juce::ignoreUnused (sampleRate, samplesPerBlock);
-}
-
-void PluginProcessor::releaseResources()
-{
-}
-
 bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
@@ -105,6 +97,9 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 float prev_val = 0.0f;
 int body_samples = 0;
 int sustain_samples = 0;
+double sample_rate = 0;
+std::unique_ptr<SlidingWindowEnergy> window;
+int windowSizeInSamples = 0;
 
 enum class State
 {
@@ -115,11 +110,27 @@ enum class State
 
 State current_state = State::IDLE;
 
+void PluginProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int samplesPerBlock)
+{
+    prev_val = 0;
+    body_samples = 0;
+    sustain_samples = 0;
+    sample_rate = sampleRate;
+
+    windowSizeInSamples = (int)(0.005 * sampleRate);  // 5ms window
+    window = std::make_unique<SlidingWindowEnergy>(windowSizeInSamples);
+}
+
+void PluginProcessor::releaseResources()
+{
+}
+
+
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const double sampleRate = getSampleRate();
+    (void)midiMessages;
 
     // Get the parameter values
     float attack = *parameters.getRawParameterValue (attackParamID);
@@ -130,19 +141,16 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     float bodyTimeMs = *parameters.getRawParameterValue (bodyTimeParamID);
     float sustainTimeMs = *parameters.getRawParameterValue(sustainTimeParamID);
 
-    int attackSampleCount = static_cast<int>(attackTimeMs * 0.001f * sampleRate);
-    int bodySampleCount = static_cast<int>(bodyTimeMs * 0.001f * sampleRate);
-    int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sampleRate);
+    int attackSampleCount = static_cast<int>(attackTimeMs * 0.001f * sample_rate);
+    int bodySampleCount = static_cast<int>(bodyTimeMs * 0.001f * sample_rate);
+    int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sample_rate);
 
-    // Attack and release curve parameters
+    // Attack and release curve parameters (we may turn this into a knob, so leave it here for now)
     const float attackCurve = 5.0f; // Adjust for desired attack curve
     const float releaseCurve = 2.0f; // Adjust for desired release curve
 
     float normalizationFactorAttack = 1.0f - std::exp(-attackCurve);
     float normalizationFactorRelease = 1.0f - std::exp(-releaseCurve);
-
-    // Define a minimum threshold for transient detection
-    const float minThreshold = 0.2f; // Adjust this value based on your needs
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
@@ -153,8 +161,16 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         {
             float inputSample = channelData[i];
 
-            // Check if a transient is detected to move to the TRANSIENT state
-            if (std::abs(inputSample - prev_val) > minThreshold) {
+            // When receiving a new sample:
+            window->addSample(inputSample);  // Add the latest sample to the sliding window
+
+            // Calculate the energy in the window:
+            float energy = window->calculateEnergy();
+            float dB = 10.0f * std::log10(energy + 1e-6f);  // Convert to dB
+
+            // Compare dB level with your threshold to detect transient
+            if (dB > -12) {
+                // Transient detected
                 current_state = State::BODY;
             }
 
