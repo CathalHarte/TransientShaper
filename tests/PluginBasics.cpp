@@ -20,7 +20,7 @@ TEST_CASE ("Plugin instance", "[instance]")
     SECTION ("name")
     {
         CHECK_THAT (testPlugin.getName().toStdString(),
-            Catch::Matchers::Equals ("Transient Shaper"));
+            Catch::Matchers::Equals ("Whipper Snapper"));
     }
 }
 
