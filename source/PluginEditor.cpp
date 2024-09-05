@@ -13,27 +13,27 @@ PluginEditor::PluginEditor(PluginProcessor& p)
         processorRef.parameters, PluginProcessor::attackParamID, attackKnob);
 
     sustainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processorRef.parameters, PluginProcessor::sustainParamID, sustainKnob);
+        processorRef.parameters, PluginProcessor::releaseParamID, sustainKnob);
 
 
     attackTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.parameters, PluginProcessor::attackTimeParamID, attackTimeSlider);
 
-    bodyTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processorRef.parameters, PluginProcessor::bodyTimeParamID, bodyTimeSlider);
-
     sustainTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.parameters, PluginProcessor::sustainTimeParamID, sustainTimeSlider);
+
+    releaseTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::releaseTimeParamID, releaseTimeSlider);
 
 
     attackCurveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.parameters, PluginProcessor::attackCurveParamID, attackCurveSlider);
 
-    bodyCurveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processorRef.parameters, PluginProcessor::bodyCurveParamID, bodyCurveSlider);
-
     sustainCurveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.parameters, PluginProcessor::sustainCurveParamID, sustainCurveSlider);
+
+    releaseCurveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.parameters, PluginProcessor::releaseCurveParamID, releaseCurveSlider);
 
 
     // Set up slider properties
@@ -55,26 +55,26 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     attackTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
     addAndMakeVisible(attackTimeSlider);
 
-    bodyTimeSlider.setSliderStyle(juce::Slider::Rotary);
-    bodyTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
-    addAndMakeVisible(bodyTimeSlider);
-
     sustainTimeSlider.setSliderStyle(juce::Slider::Rotary);
     sustainTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
     addAndMakeVisible(sustainTimeSlider);
+
+    releaseTimeSlider.setSliderStyle(juce::Slider::Rotary);
+    releaseTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible(releaseTimeSlider);
 
 
     attackCurveSlider.setSliderStyle(juce::Slider::Rotary);
     attackCurveSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
     addAndMakeVisible(attackCurveSlider);
 
-    bodyCurveSlider.setSliderStyle(juce::Slider::Rotary);
-    bodyCurveSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
-    addAndMakeVisible(bodyCurveSlider);
-
     sustainCurveSlider.setSliderStyle(juce::Slider::Rotary);
     sustainCurveSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
     addAndMakeVisible(sustainCurveSlider);
+
+    releaseCurveSlider.setSliderStyle(juce::Slider::Rotary);
+    releaseCurveSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
+    addAndMakeVisible(releaseCurveSlider);
 
 
     // Initialize and configure labels
@@ -100,15 +100,15 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     attackTimeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(attackTimeLabel);
 
-    bodyTimeLabel.setText("Body Time", juce::dontSendNotification);
-    bodyTimeLabel.attachToComponent(&bodyTimeSlider, false);
-    bodyTimeLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(bodyTimeLabel);
-
     sustainTimeLabel.setText("Sustain Time", juce::dontSendNotification);
     sustainTimeLabel.attachToComponent(&sustainTimeSlider, false);
     sustainTimeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(sustainTimeLabel);
+
+    releaseTimeLabel.setText("Release Time", juce::dontSendNotification);
+    releaseTimeLabel.attachToComponent(&releaseTimeSlider, false);
+    releaseTimeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(releaseTimeLabel);
 
 
     attackCurveLabel.setText("Attack Curve", juce::dontSendNotification);
@@ -116,15 +116,15 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     attackCurveLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(attackCurveLabel);
 
-    bodyCurveLabel.setText("Body Curve", juce::dontSendNotification);
-    bodyCurveLabel.attachToComponent(&bodyCurveSlider, false);
-    bodyCurveLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(bodyCurveLabel);
-
     sustainCurveLabel.setText("Sustain Curve", juce::dontSendNotification);
     sustainCurveLabel.attachToComponent(&sustainCurveSlider, false);
     sustainCurveLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(sustainCurveLabel);
+
+    releaseCurveLabel.setText("Release Curve", juce::dontSendNotification);
+    releaseCurveLabel.attachToComponent(&releaseCurveSlider, false);
+    releaseCurveLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(releaseCurveLabel);
 
 
     // Set the size of the editor
@@ -151,10 +151,10 @@ void PluginEditor::resized()
     sustainKnob.setBounds (200, 200, 100, 100);
     
     attackTimeSlider.setBounds(50, 350, 100, 100);
-    bodyTimeSlider.setBounds(200, 350, 100, 100);
-    sustainTimeSlider.setBounds(350, 350, 100, 100);
+    sustainTimeSlider.setBounds(200, 350, 100, 100);
+    releaseTimeSlider.setBounds(350, 350, 100, 100);
 
     attackCurveSlider.setBounds(50, 500, 100, 100);
-    bodyCurveSlider.setBounds(200, 500, 100, 100);
-    sustainCurveSlider.setBounds(350, 500, 100, 100);
+    sustainCurveSlider.setBounds(200, 500, 100, 100);
+    releaseCurveSlider.setBounds(350, 500, 100, 100);
 }

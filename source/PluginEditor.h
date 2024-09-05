@@ -22,12 +22,12 @@ private:
     juce::Slider sustainKnob;
 
     juce::Slider attackTimeSlider;
-    juce::Slider bodyTimeSlider;
     juce::Slider sustainTimeSlider;
+    juce::Slider releaseTimeSlider;
 
     juce::Slider attackCurveSlider;
-    juce::Slider bodyCurveSlider;
     juce::Slider sustainCurveSlider;
+    juce::Slider releaseCurveSlider;
 
     // Labels for knobs
     juce::Label thresholdLabel;
@@ -36,12 +36,12 @@ private:
     juce::Label sustainLabel;
     
     juce::Label attackTimeLabel;
-    juce::Label bodyTimeLabel;
     juce::Label sustainTimeLabel;
+    juce::Label releaseTimeLabel;
     
     juce::Label attackCurveLabel;
-    juce::Label bodyCurveLabel;
     juce::Label sustainCurveLabel;
+    juce::Label releaseCurveLabel;
 
     // Slider attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> thresholdAttachment;
@@ -50,12 +50,12 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainAttachment;
     
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attackTimeAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bodyTimeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainTimeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> releaseTimeAttachment;
     
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attackCurveAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bodyCurveAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainCurveAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> releaseCurveAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };
