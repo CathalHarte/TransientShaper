@@ -44,7 +44,7 @@ public:
 
     // gain values, allowing to increase / decrease two parts of the sound
     static constexpr auto attackParamID = "attack";
-    static constexpr auto sustainParamID = "sustain";
+    static constexpr auto releaseParamID = "release";
 
 
     // for setting the slope of the attack phase - the duration of time over which the "attack" gain is reached
@@ -52,17 +52,17 @@ public:
 
     // for setting the duration of the body of the sound, which contains both the first boosted transient,
     // and an untouched portion of the sound (before the sustain phase is entered)
-    static constexpr auto bodyTimeParamID = "bodyTimeMs"; 
+    static constexpr auto sustainTimeParamID = "sustainTimeMs"; 
 
     // for setting the duration of the sustain phase - the duration of time over which the "sustain" gain is reached
-    static constexpr auto sustainTimeParamID = "sustainTimeMs";
+    static constexpr auto releaseTimeParamID = "releaseTimeMs";
 
     // for setting the slope behaviour
     static constexpr auto attackCurveParamID = "attackCurve";
 
-    static constexpr auto bodyCurveParamID = "bodyCurve";
-
     static constexpr auto sustainCurveParamID = "sustainCurve";
+
+    static constexpr auto releaseCurveParamID = "releaseCurve";
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
