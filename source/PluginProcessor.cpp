@@ -109,6 +109,10 @@ int windowSizeInSamples = 0;
 float cached_gain = 1;
 float prev_gain = 1;
 
+int windowSizeInMilliseconds = 5;
+juce::AudioBuffer<float> lookaheadBuffer;
+int lookaheadBufferIndex = 0;
+
 enum class State
 {
     IDLE,       // Waiting for a transient
@@ -128,6 +132,15 @@ void PluginProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int sam
 
     windowSizeInSamples = (int)(0.005 * sampleRate);  // 5ms window
     window = std::make_unique<SlidingWindowEnergy>(windowSizeInSamples);
+
+    // Prepare the buffer based on the lookahead time and sample rate
+    int lookaheadInSamples = (int)(windowSizeInMilliseconds * sampleRate / 1000.0);
+    lookaheadBuffer.setSize (2, lookaheadInSamples + samplesPerBlock);
+}
+
+int PluginProcessor::getLatencySamples() 
+{
+    return (int)(windowSizeInMilliseconds * sample_rate / 1000.0); // correct for the window look ahead
 }
 
 void PluginProcessor::releaseResources()
@@ -168,6 +181,13 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     {
         auto* channelData = buffer.getWritePointer(channel);
         int numSamples = buffer.getNumSamples();
+
+        float* lookaheadData = lookaheadBuffer.getWritePointer(channel);
+
+        // Copy the current block into the lookahead buffer
+        for (int i = 0; i < buffer.getNumSamples(); ++i) {
+            lookaheadData[(lookaheadBufferIndex + i) % lookaheadBuffer.getNumSamples()] = channelData[i];
+        }
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -248,11 +268,15 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             }
 
             // Apply the gain (with some tanh saturation)
-            channelData[i] = tanh(channelData[i] * gain);
+            channelData[i] = tanh(lookaheadData[i] * gain);
 
             cached_gain = gain;            
         }
     }
+
+    // Advance buffer index
+    lookaheadBufferIndex += buffer.getNumSamples();
+    lookaheadBufferIndex %= lookaheadBuffer.getNumSamples();
 }
 
 
