@@ -108,8 +108,11 @@ std::unique_ptr<SlidingWindowEnergy> window;
 int windowSizeInSamples = 0;
 float cached_gain = 1;
 float prev_gain = 1;
+int refractoryPeriodSamples;
+int refractoryCounter = 0;
+float prev_dB = 0;
 
-int windowSizeInMilliseconds = 5;
+int windowSizeInMilliseconds = 10;
 juce::AudioBuffer<float> lookaheadBuffer;
 int lookaheadBufferIndex = 0;
 
@@ -129,19 +132,21 @@ void PluginProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int sam
     sample_rate = sampleRate;
     cached_gain = 1;
     prev_gain = 1;
+    prev_dB = 0;
 
-    windowSizeInSamples = (int)(0.005 * sampleRate);  // 5ms window
+    refractoryPeriodSamples = (int)(0.10 * sampleRate); // 16th note at 150 bpm is 100ms
+    refractoryCounter = 0;
+
+    windowSizeInSamples = (int)(0.005 * sampleRate);  // 2ms window
     window = std::make_unique<SlidingWindowEnergy>(windowSizeInSamples);
 
     // Prepare the buffer based on the lookahead time and sample rate
     int lookaheadInSamples = (int)(windowSizeInMilliseconds * sampleRate / 1000.0);
     lookaheadBuffer.setSize (2, lookaheadInSamples + samplesPerBlock);
+
+    setLatencySamples((int)(windowSizeInMilliseconds * sample_rate / 1000.0)); // correct for the window look ahead)
 }
 
-int PluginProcessor::getLatencySamples() 
-{
-    return (int)(windowSizeInMilliseconds * sample_rate / 1000.0); // correct for the window look ahead
-}
 
 void PluginProcessor::releaseResources()
 {
@@ -184,14 +189,11 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
         float* lookaheadData = lookaheadBuffer.getWritePointer(channel);
 
-        // Copy the current block into the lookahead buffer
-        for (int i = 0; i < buffer.getNumSamples(); ++i) {
-            lookaheadData[(lookaheadBufferIndex + i) % lookaheadBuffer.getNumSamples()] = channelData[i];
-        }
-
         for (int i = 0; i < numSamples; ++i)
         {
             float inputSample = channelData[i];
+            // Copy the current block into the lookahead buffer
+            lookaheadData[(lookaheadBufferIndex + i) % lookaheadBuffer.getNumSamples()] = channelData[i];
 
             // When receiving a new sample:
             window->addSample(inputSample);  // Add the latest sample to the sliding window
@@ -201,8 +203,14 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             float dB = 10.0f * std::log10(energy + 1e-6f);  // Convert to dB
 
             // Compare dB level with your threshold to detect transient
-            if (dB > threshold) {
+            // if not in the refractory period (but having possibly just left)
+            // look at the previous dB calculation, and make sure we are bigger than
+            // that
+
+            if (refractoryCounter <= 0 && dB > threshold && dB > prev_dB) {
                 // Transient detected
+
+                refractoryCounter = refractoryPeriodSamples;
 
                 if (current_state == State::IDLE)
                 {
@@ -215,6 +223,11 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
                 current_state = State::SUSTAIN;
             }
+            else if (refractoryCounter > 0){
+                refractoryCounter--;
+            }
+
+            prev_dB = dB;
 
             float gain = 1;
             switch (current_state)
