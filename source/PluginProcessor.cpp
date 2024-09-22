@@ -112,9 +112,6 @@ int refractoryPeriodSamples;
 int refractoryCounter = 0;
 float prev_dB = 0;
 
-int windowSizeInMilliseconds = 10;
-juce::AudioBuffer<float> lookaheadBuffer;
-int lookaheadBufferIndex = 0;
 
 enum class State
 {
@@ -134,17 +131,11 @@ void PluginProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int sam
     prev_gain = 1;
     prev_dB = 0;
 
-    refractoryPeriodSamples = (int)(0.10 * sampleRate); // 16th note at 150 bpm is 100ms
+    refractoryPeriodSamples = (int)(0.1 * sampleRate); // 16th note at 150 bpm is 100ms
     refractoryCounter = 0;
 
     windowSizeInSamples = (int)(0.005 * sampleRate);  // 2ms window
     window = std::make_unique<SlidingWindowEnergy>(windowSizeInSamples);
-
-    // Prepare the buffer based on the lookahead time and sample rate
-    int lookaheadInSamples = (int)(windowSizeInMilliseconds * sampleRate / 1000.0);
-    lookaheadBuffer.setSize (2, lookaheadInSamples + samplesPerBlock);
-
-    setLatencySamples((int)(windowSizeInMilliseconds * sample_rate / 1000.0)); // correct for the window look ahead)
 }
 
 
@@ -182,114 +173,109 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     float normalizationFactorSustain = 1.0f - std::exp(-sustainCurve);
     float normalizationFactorRelease = 1.0f - std::exp(-releaseCurve);
 
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    auto* channelData = buffer.getWritePointer(0);
+    int numSamples = buffer.getNumSamples();
+
+    for (int i = 0; i < numSamples; ++i)
     {
-        auto* channelData = buffer.getWritePointer(channel);
-        int numSamples = buffer.getNumSamples();
+        float inputSample = channelData[i];
 
-        float* lookaheadData = lookaheadBuffer.getWritePointer(channel);
+        // When receiving a new sample:
+        window->addSample(inputSample);  // Add the latest sample to the sliding window
 
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float inputSample = channelData[i];
-            // Copy the current block into the lookahead buffer
-            lookaheadData[(lookaheadBufferIndex + i) % lookaheadBuffer.getNumSamples()] = channelData[i];
+        // Calculate the energy in the window:
+        float energy = window->calculateEnergy();
+        float dB = 10.0f * std::log10(energy + 1e-6f);  // Convert to dB
 
-            // When receiving a new sample:
-            window->addSample(inputSample);  // Add the latest sample to the sliding window
+        // Compare dB level with your threshold to detect transient
+        // if not in the refractory period (but having possibly just left)
+        // look at the previous dB calculation, and make sure we are bigger than
+        // that
 
-            // Calculate the energy in the window:
-            float energy = window->calculateEnergy();
-            float dB = 10.0f * std::log10(energy + 1e-6f);  // Convert to dB
+        if (refractoryCounter <= 0 && dB > threshold) {
+            // Transient detected
 
-            // Compare dB level with your threshold to detect transient
-            // if not in the refractory period (but having possibly just left)
-            // look at the previous dB calculation, and make sure we are bigger than
-            // that
+            refractoryCounter = refractoryPeriodSamples;
 
-            if (refractoryCounter <= 0 && dB > threshold && dB > prev_dB) {
-                // Transient detected
-
-                refractoryCounter = refractoryPeriodSamples;
-
-                if (current_state == State::IDLE)
-                {
-                    prev_gain = 1;
-                }
-                else 
-                {
-                    prev_gain = cached_gain;
-                }
-
-                current_state = State::SUSTAIN;
-            }
-            else if (refractoryCounter > 0){
-                refractoryCounter--;
-            }
-
-            prev_dB = dB;
-
-            float gain = 1;
-            switch (current_state)
+            if (current_state == State::IDLE)
             {
-                case State::IDLE:
-                    gain = 1;
-                    break;
-
-                case State::SUSTAIN:
-                    {
-                        // Calculate the attack curve with normalization
-                        if (sustain_samples <= attackSampleCount)
-                        {
-                            // Attack phase: progress from 1.0 to the attack gain
-                            float progress = static_cast<float>(sustain_samples) / attackSampleCount;
-                            float curve = (1.0f - std::exp(-attackCurve * progress)) / normalizationFactorAttack;
-                            gain = prev_gain + ((attack - prev_gain) * curve);
-                        }
-                        else
-                        {
-                            // progress back from the attack gain to 1.0
-                            float sustainProgress = static_cast<float>(sustain_samples - attackSampleCount) / sustainSampleCount;
-                            float curve = (1.0f - std::exp(-sustainCurve * sustainProgress)) / normalizationFactorSustain;
-                            gain = 1.0f + ((attack - 1.0f) * (1.0f - curve));
-                        }
-                    
-                        sustain_samples++;
-                        if (sustain_samples >= sustainSampleCount)
-                        {
-                            current_state = State::RELEASE;
-                            prev_gain = gain;
-                            sustain_samples = 0;
-                        }
-                    }
-                    break;
-
-                case State::RELEASE:
-                    {
-                        // Calculate the release curve
-                        float releaseProgress = static_cast<float>(release_samples) / releaseSampleCount;
-                        float curve = (1.0f - std::exp(-releaseCurve * releaseProgress)) / normalizationFactorRelease;
-                        gain = prev_gain + ((release - prev_gain) * curve);
-
-                        release_samples++;
-                        if (release_samples >= releaseSampleCount) {
-                            current_state = State::IDLE;
-                            release_samples = 0;
-                        }
-                    }
-                    break;
+                prev_gain = 1;
+            }
+            else 
+            {
+                prev_gain = cached_gain;
             }
 
-            // Apply the gain (with some tanh saturation)
-            channelData[i] = tanh(lookaheadData[i] * gain);
-
-            cached_gain = gain;            
+            current_state = State::SUSTAIN;
         }
-    }
+        else if (refractoryCounter > 0){
+            refractoryCounter--;
+        }
 
-    // Advance buffer index
-    lookaheadBufferIndex += buffer.getNumSamples();
-    lookaheadBufferIndex %= lookaheadBuffer.getNumSamples();
+        prev_dB = dB; // single channel save, but we have multiple channelssss
+
+        float gain = 1;
+        switch (current_state)
+        {
+            case State::IDLE:
+                gain = 1;
+                break;
+
+            case State::SUSTAIN:
+                {
+                    // Calculate the attack curve with normalization
+                    if (sustain_samples <= attackSampleCount)
+                    {
+                        // Attack phase: progress from 1.0 to the attack gain
+                        float progress = static_cast<float>(sustain_samples) / attackSampleCount;
+                        float curve = (1.0f - std::exp(-attackCurve * progress)) / normalizationFactorAttack;
+                        gain = prev_gain + ((attack - prev_gain) * curve);
+                    }
+                    else
+                    {
+                        // progress back from the attack gain to 1.0
+                        float sustainProgress = static_cast<float>(sustain_samples - attackSampleCount) / sustainSampleCount;
+                        float curve = (1.0f - std::exp(-sustainCurve * sustainProgress)) / normalizationFactorSustain;
+                        gain = 1.0f + ((attack - 1.0f) * (1.0f - curve));
+                    }
+                
+                    sustain_samples++;
+                    if (sustain_samples >= sustainSampleCount)
+                    {
+                        current_state = State::RELEASE;
+                        prev_gain = gain;
+                        sustain_samples = 0;
+                    }
+                }
+                break;
+
+            case State::RELEASE:
+                {
+                    // Calculate the release curve
+                    float releaseProgress = static_cast<float>(release_samples) / releaseSampleCount;
+                    float curve = (1.0f - std::exp(-releaseCurve * releaseProgress)) / normalizationFactorRelease;
+                    gain = prev_gain + ((release - prev_gain) * curve);
+
+                    release_samples++;
+                    if (release_samples >= releaseSampleCount) {
+                        current_state = State::IDLE;
+                        release_samples = 0;
+                    }
+                }
+                break;
+        }
+
+        // Apply the gain (with some tanh saturation)
+        channelData[i] = tanh(channelData[i] * gain);
+
+        cached_gain = gain;    
+    }        
+
+    // Optionally, you could copy the processed mono data to the other channels (for stereo output)
+    for (int channel = 1; channel < buffer.getNumChannels(); ++channel) {
+        float* allChannelData = buffer.getWritePointer(channel);
+        std::memcpy(allChannelData, channelData, sizeof(float) * buffer.getNumSamples());
+    }
 }
 
 
