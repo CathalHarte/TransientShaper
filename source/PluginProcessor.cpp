@@ -118,149 +118,72 @@ enum class State
     RELEASE     // After the body of the sound has passed, enter the release phase and apply the release envelope
 };
 
-State current_state = State::IDLE;
+// Define variables for Fuzz Face distortion parameters
+float c1, c2, r1, r2, r3;
+float a1, a2, b1, b2;
+float s1, s2;
 
+State current_state = State::IDLE;
 void PluginProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int samplesPerBlock)
 {
-    sustain_samples = 0;
-    release_samples = 0;
+
+
+    // Initialize parameters for the Fuzz Face distortion
     sample_rate = sampleRate;
-    cached_gain = 1;
-    prev_gain = 1;
+    c1 = 0.01e-6f;  // 0.01uF capacitor
+    c2 = 2.2e-6f;   // 2.2uF capacitor
+    r1 = 33e3f;     // 33k resistor
+    r2 = 8.2e3f;    // 8.2k resistor
+    r3 = 470.0f;    // 470 ohm resistor
 
-    refractoryPeriodSamples = (int)(0.10 * sampleRate); // why should we retrigger at such a high frequency?
-    refractoryCounter = 0;
+    // Pre-calculate constants
+    const float T = 1.0f / static_cast<float>(sampleRate);
+    a1 = T / (2.0f * c1);
+    a2 = T / (2.0f * c2);
+    b1 = (2.0f * r1 * c1 - T) / (2.0f * r1 * c1 + T);
+    b2 = (2.0f * r3 * c2 - T) / (2.0f * r3 * c2 + T);
 
-    windowSizeInSamples = (int)(0.005 * sampleRate);  // 2ms window
-    window = std::make_unique<SlidingWindowEnergy>(windowSizeInSamples);
+    // Initialize state variables
+    s1 = s2 = 0.0f;
 }
 
 void PluginProcessor::releaseResources()
 {
+    // Reset state variables
+    s1 = s2 = 0.0f;
 }
-
 
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-
     (void)midiMessages;
 
-    // Get the parameter values
-    float threshold = *parameters.getRawParameterValue(thresholdParamID);
+    const int numChannels = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
 
-    float attack = *parameters.getRawParameterValue (attackParamID);
-    float release = *parameters.getRawParameterValue (releaseParamID);
-
-    float attackTimeMs = *parameters.getRawParameterValue (attackTimeParamID);
-    float sustainTimeMs = *parameters.getRawParameterValue (sustainTimeParamID);
-    float releaseTimeMs = *parameters.getRawParameterValue(releaseTimeParamID);
-
-    int attackSampleCount = static_cast<int>(attackTimeMs * 0.001f * sample_rate);
-    int sustainSampleCount = static_cast<int>(sustainTimeMs * 0.001f * sample_rate);
-    int releaseSampleCount = static_cast<int>(releaseTimeMs * 0.001f * sample_rate);
-
-
-    float attackCurve = *parameters.getRawParameterValue(attackCurveParamID);
-    float sustainCurve = *parameters.getRawParameterValue(sustainCurveParamID);
-    float releaseCurve = *parameters.getRawParameterValue(releaseCurveParamID);
-
-    float normalizationFactorAttack = 1.0f - std::exp(-attackCurve);
-    float normalizationFactorSustain = 1.0f - std::exp(-sustainCurve);
-    float normalizationFactorRelease = 1.0f - std::exp(-releaseCurve);
-
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    for (int channel = 0; channel < numChannels; ++channel)
     {
-        auto* channelData = buffer.getWritePointer(channel);
-        int numSamples = buffer.getNumSamples();
+        float* channelData = buffer.getWritePointer(channel);
 
-        for (int i = 0; i < numSamples; ++i)
+        for (int sample = 0; sample < numSamples; ++sample)
         {
-            float inputSample = channelData[i];
+            float input = channelData[sample];
 
-            // When receiving a new sample:
-            window->addSample(inputSample);  // Add the latest sample to the sliding window
+            // First stage (input transistor)
+            float u1 = (input - r1 * (a1 * input + s1)) / (1 + r1 * a1);
+            float v1 = a1 * u1 + s1;
+            s1 = 2 * v1 - s1;
 
-            // Calculate the energy in the window:
-            float energy = window->calculateEnergy();
-            float dB = 10.0f * std::log10(energy + 1e-6f);  // Convert to dB
+            // Clipping stage
+            float clip = std::tanh(v1 / 0.025f) * 0.025f;
 
-            // Compare dB level with your threshold to detect transient
-            if (refractoryCounter <= 0 && dB > threshold) {
-                // Transient detected
+            // Second stage (output transistor)
+            float u2 = (clip - r3 * (a2 * clip + s2)) / (1 + r3 * a2);
+            float v2 = a2 * u2 + s2;
+            s2 = 2 * v2 - s2;
 
-                refractoryCounter = refractoryPeriodSamples;
-
-                if (current_state == State::IDLE)
-                {
-                    prev_gain = 1;
-                }
-                else 
-                {
-                    prev_gain = cached_gain;
-                }
-
-                current_state = State::SUSTAIN;
-            }
-            else if (refractoryCounter > 0){
-                refractoryCounter--;
-            }
-
-            float gain = 1;
-            switch (current_state)
-            {
-                case State::IDLE:
-                    gain = 1;
-                    break;
-
-                case State::SUSTAIN:
-                    {
-                        // Calculate the attack curve with normalization
-                        if (sustain_samples <= attackSampleCount)
-                        {
-                            // Attack phase: progress from 1.0 to the attack gain
-                            float progress = static_cast<float>(sustain_samples) / attackSampleCount;
-                            float curve = (1.0f - std::exp(-attackCurve * progress)) / normalizationFactorAttack;
-                            gain = prev_gain + ((attack - prev_gain) * curve);
-                        }
-                        else
-                        {
-                            // progress back from the attack gain to 1.0
-                            float sustainProgress = static_cast<float>(sustain_samples - attackSampleCount) / sustainSampleCount;
-                            float curve = (1.0f - std::exp(-sustainCurve * sustainProgress)) / normalizationFactorSustain;
-                            gain = 1.0f + ((attack - 1.0f) * (1.0f - curve));
-                        }
-                    
-                        sustain_samples++;
-                        if (sustain_samples >= sustainSampleCount)
-                        {
-                            current_state = State::RELEASE;
-                            prev_gain = gain;
-                            sustain_samples = 0;
-                        }
-                    }
-                    break;
-
-                case State::RELEASE:
-                    {
-                        // Calculate the release curve
-                        float releaseProgress = static_cast<float>(release_samples) / releaseSampleCount;
-                        float curve = (1.0f - std::exp(-releaseCurve * releaseProgress)) / normalizationFactorRelease;
-                        gain = prev_gain + ((release - prev_gain) * curve);
-
-                        release_samples++;
-                        if (release_samples >= releaseSampleCount) {
-                            current_state = State::IDLE;
-                            release_samples = 0;
-                        }
-                    }
-                    break;
-            }
-
-            // Apply the gain 
-            channelData[i] = channelData[i] * gain;
-
-            cached_gain = gain;            
+            // Output
+            channelData[sample] = v2 * 5.0f;  // Amplify the output
         }
     }
 }
